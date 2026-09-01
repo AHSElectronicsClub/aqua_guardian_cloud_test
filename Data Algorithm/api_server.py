@@ -21,19 +21,25 @@ WEATHER_API_KEY = os.environ.get('WEATHER_API_KEY')
 WEATHER_API_URL = "https://api.openweathermap.org/data/3.0/onecall/timemachine"
 
 # --- Flask App Setup ---
+# --- Flask App Setup ---
 app = Flask(__name__)
 
-# --- MANUAL FOOLPROOF CORS HANDLER ---
+# --- FOOLPROOF GLOBAL PREFLIGHT & CORS HANDLER ---
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        response = jsonify({"status": "OK"})
+        response.headers.add("Access-Control-Allow-Origin", "*")
+        response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization,X-API-Key,x-api-key")
+        response.headers.add("Access-Control-Allow-Methods", "GET,PUT,POST,DELETE,OPTIONS")
+        return response, 200
+
 @app.after_request
 def add_cors_headers(response):
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type,Authorization,X-API-Key,x-api-key'
     response.headers['Access-Control-Allow-Methods'] = 'GET,PUT,POST,DELETE,OPTIONS'
     return response
-
-@app.route('/api/<path:path>', methods=['OPTIONS'])
-def handle_options(path):
-    return jsonify({'status': 'OK'}), 200
 # ------------------------------------
 
 def get_db_connection():
