@@ -39,7 +39,7 @@ app = Flask(__name__)
 CORS(app, resources={
     r"/api/*": {
         "origins": [
-            "https://atholton-electronics-club.vercel.app/",
+            "https://atholton-electronics-club.vercel.app",
             "http://localhost" # Good for local testing
             # You can add more domains here
         ]
