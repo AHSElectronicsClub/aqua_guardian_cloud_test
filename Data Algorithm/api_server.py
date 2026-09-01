@@ -198,6 +198,8 @@ def get_dashboard_analysis():
         return json.dumps(analysis_result, cls=CustomEncoder), 200, {'Content-Type': 'application/json'}
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()  # This forces the exact error line to print in Render logs
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/buoys/latest", methods=["GET"])
