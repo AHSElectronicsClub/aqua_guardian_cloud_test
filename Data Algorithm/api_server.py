@@ -199,8 +199,9 @@ def get_dashboard_analysis():
 
     except Exception as e:
         import traceback
-        traceback.print_exc()  # This forces the exact error line to print in Render logs
-        return jsonify({"error": str(e)}), 500
+        error_msg = traceback.format_exc()
+        print(error_msg) # Force print to stdout
+        return jsonify({"error": str(e), "traceback": error_msg}), 500
 
 @app.route("/api/buoys/latest", methods=["GET"])
 def get_latest_buoy_data():
