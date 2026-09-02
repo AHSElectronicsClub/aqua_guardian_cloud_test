@@ -100,17 +100,24 @@ def get_buoy_info(conn: psycopg2.extensions.connection, buoy_id: str) -> Dict[st
     except psycopg2.Error as e:
         raise
 
+from sqlalchemy import create_engine
+
 def fetch_sensor_data(conn: psycopg2.extensions.connection, buoy_id: str, 
                       start_time: Optional[str] = None, 
                       end_time: Optional[str] = None) -> pd.DataFrame:
     """
-    Fetches sensor data for a given buoy and optional timeframe.
-    
-    *** MODIFIED: Also selects gps_lat and gps_lon. ***
+    Fetches sensor data for a given buoy and optional timeframe using SQLAlchemy engine.
     """
     try:
-        # --- MODIFICATION ---
-        # Added gps_lat and gps_lon to the SELECT statement
+        # Build SQLAlchemy engine using the environment variables
+        db_user = os.environ.get('DB_USER', 'postgres')
+        db_pass = os.environ.get('DB_PASS', '')
+        db_host = os.environ.get('DB_HOST', 'localhost')
+        db_port = os.environ.get('DB_PORT', '6543')
+        db_name = os.environ.get('DB_NAME', 'postgres')
+        
+        engine = create_engine(f"postgresql+psycopg2://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}")
+
         if start_time and end_time:
             query = """
                 SELECT "timestamp", pH, "DO", EC, Turbidity, Temp, ORP, 
@@ -132,15 +139,13 @@ def fetch_sensor_data(conn: psycopg2.extensions.connection, buoy_id: str,
             """
             params = (buoy_id,)
             
-        df = pd.read_sql_query(query, conn, params=params)
+        df = pd.read_sql_query(query, engine, params=params)
         
         if df.empty:
             return pd.DataFrame()
 
         df['timestamp'] = pd.to_datetime(df['timestamp'])
         
-        # --- MODIFICATION ---
-        # Added gps_lat and gps_lon to the rename map
         rename_map = {
             'ph': 'pH',
             'ec': 'EC',
@@ -160,7 +165,7 @@ def fetch_sensor_data(conn: psycopg2.extensions.connection, buoy_id: str,
             
         return df
     
-    except (psycopg2.Error, pd.errors.DatabaseError) as e:
+    except (psycopg2.Error, pd.errors.DatabaseError, Exception) as e:
         raise
 
 def handle_rain_effects(df_raw: pd.DataFrame, water_body_type: str) -> pd.DataFrame:
