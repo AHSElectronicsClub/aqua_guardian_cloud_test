@@ -111,7 +111,7 @@ def fetch_sensor_data(conn: psycopg2.extensions.connection, buoy_id: str,
     try:
         # Build SQLAlchemy engine using the environment variables
         db_user = os.environ.get('DB_USER', 'postgres')
-        db_pass = os.environ.get('DB_PASS', '')
+        db_pass = os.environ.get('DB_PASS', 'aW+T6e_h!EyW7BQ')
         db_host = os.environ.get('DB_HOST', 'localhost')
         db_port = os.environ.get('DB_PORT', '6543')
         db_name = os.environ.get('DB_NAME', 'postgres')
