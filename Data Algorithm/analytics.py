@@ -121,7 +121,7 @@ def fetch_sensor_data(conn: psycopg2.extensions.connection, buoy_id: str,
         if start_time and end_time:
             query = """
                 SELECT "timestamp", pH, "DO", EC, Turbidity, Temp, ORP, 
-                       rain_flag, water_leak, session_id, sample_count,
+                       rain_flag, water_leak, session_id,
                        gps_lat, gps_lon
                 FROM sensor_data 
                 WHERE buoy_id = %s AND "timestamp" BETWEEN %s AND %s
@@ -131,7 +131,7 @@ def fetch_sensor_data(conn: psycopg2.extensions.connection, buoy_id: str,
         else:
             query = """
                 SELECT "timestamp", pH, "DO", EC, Turbidity, Temp, ORP, 
-                       rain_flag, water_leak, session_id, sample_count,
+                       rain_flag, water_leak, session_id,
                        gps_lat, gps_lon
                 FROM sensor_data 
                 WHERE buoy_id = %s 
@@ -154,7 +154,6 @@ def fetch_sensor_data(conn: psycopg2.extensions.connection, buoy_id: str,
             'orp': 'ORP',
             'water_leak': 'water_leak',
             'session_id': 'session_id',
-            'sample_count': 'sample_count',
             'gps_lat': 'gps_lat',
             'gps_lon': 'gps_lon'
         }
