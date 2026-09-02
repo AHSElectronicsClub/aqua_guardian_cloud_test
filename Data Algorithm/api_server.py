@@ -224,7 +224,7 @@ def get_latest_buoy_data():
             latest_data = cursor.fetchall() 
         conn.close()
         results = [dict(row) for row in latest_data]
-        
+
         class CustomEncoder(json.JSONEncoder):
             def default(self, obj):
                 if isinstance(obj, np.integer):
