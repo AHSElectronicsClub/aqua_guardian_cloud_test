@@ -9,6 +9,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Optional, Tuple, Dict, Any
 from sqlalchemy import create_engine
+import math
 
 # --- Universal Variables (Constants) ---
 
@@ -530,6 +531,19 @@ def calculate_pollution_indicator(df_processed_timeframe: pd.DataFrame,
 
     return {"pollution_score": min(score, 100), "analysis": analysis}
 
+# --- Functions for cleaning data return --- 
+
+def clean_nans(obj):
+    """Recursively replaces NaN and Inf values with None for valid JSON serialization."""
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    elif isinstance(obj, dict):
+        return {k: clean_nans(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [clean_nans(v) for v in obj]
+    return obj
 
 # --- Main API Entry Function ---
 
@@ -641,7 +655,7 @@ def get_dashboard_data(buoy_id: str, timeframe_start: str, timeframe_end: str,
         }
         
         # 8. Construct Final Response
-        return {
+        response_data = {
             "buoy_id": buoy_id,
             "gps_coordinates": {
                 "latitude": latest_gps_lat,
@@ -651,7 +665,7 @@ def get_dashboard_data(buoy_id: str, timeframe_start: str, timeframe_end: str,
                 "start": timeframe_start,
                 "end": timeframe_end
             },
-            "water_leak": latest_water_leak,  # Moved to top level as boolean
+            "water_leak": latest_water_leak,
             "dashboard_metrics": dashboard_metrics,
             "derived_metrics": derived_metrics,
             "calculation_details": {
@@ -660,6 +674,8 @@ def get_dashboard_data(buoy_id: str, timeframe_start: str, timeframe_end: str,
                 "baseline_std_devs": baseline_std_devs
             }
         }
+        
+        return clean_nans(response_data)
 
     except Exception as e:
         return {"error": str(e)}
