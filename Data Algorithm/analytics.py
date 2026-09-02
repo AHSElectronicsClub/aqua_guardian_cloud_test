@@ -8,6 +8,7 @@ import os
 import json
 from datetime import datetime, timedelta
 from typing import Optional, Tuple, Dict, Any
+from sqlalchemy import create_engine
 
 # --- Universal Variables (Constants) ---
 
@@ -99,8 +100,7 @@ def get_buoy_info(conn: psycopg2.extensions.connection, buoy_id: str) -> Dict[st
             return dict(buoy_data)
     except psycopg2.Error as e:
         raise
-
-from sqlalchemy import create_engine
+        
 
 def fetch_sensor_data(conn: psycopg2.extensions.connection, buoy_id: str, 
                       start_time: Optional[str] = None, 
