@@ -127,9 +127,9 @@ def receive_data():
                 buoy_id, session_id, "timestamp", 
                 gps_lat, gps_lon, water_leak, 
                 pH, Temp, EC, Turbidity, "DO", ORP, 
-                rain_flag
+                rain_flag, battery_v
             ) 
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
         """
         
         inserted_rows = 0
@@ -142,7 +142,7 @@ def receive_data():
                     device_id, session_id, sample_time, lat, lon, water_leak,
                     sample.get('pH'), sample.get('temp'), sample.get('EC'),
                     sample.get('turbidity'), sample.get('DO'), sample.get('ORP'),
-                    session_rain_flag
+                    session_rain_flag, sample.get('battery_v')
                 ))
                 inserted_rows += 1
         
@@ -209,7 +209,7 @@ def get_latest_buoy_data():
         SELECT DISTINCT ON (s.buoy_id)
             s.buoy_id, b.friendly_name, b.water_body_type, s."timestamp",
             s.gps_lat, s.gps_lon, s.water_leak, s.pH, s.Temp, s.EC,
-            s.Turbidity, s."DO", s.ORP, s.rain_flag
+            s.Turbidity, s."DO", s.ORP, s.rain_flag, s.battery_v
         FROM sensor_data s
         JOIN buoys b ON s.buoy_id = b.buoy_id
         ORDER BY s.buoy_id, s."timestamp" DESC;
