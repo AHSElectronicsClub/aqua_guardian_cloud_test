@@ -4,7 +4,6 @@ import psycopg2
 import psycopg2.extras
 import json
 from flask import Flask, request, jsonify
-from datetime import datetime
 from typing import Dict, Any
 import numpy as np
 import pandas as pd
