@@ -16,8 +16,6 @@ DB_PORT = os.environ.get('DB_PORT', 5432)
 DB_NAME = os.environ.get('DB_NAME', 'water_data')
 DB_USER = os.environ.get('DB_USER', 'postgres')
 DB_PASS = os.environ.get('DB_PASS', 'password')
-
-WEATHER_API_KEY = os.environ.get('WEATHER_API_KEY')
 WEATHER_API_URL = "https://api.openweathermap.org/data/3.0/onecall/timemachine"
 
 # --- Flask App Setup ---
