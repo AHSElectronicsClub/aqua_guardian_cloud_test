@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import analytics
 from datetime import datetime
+from decimal import Decimal
 
 # --- Configuration (Load from Environment Variables) ---
 DB_HOST = os.environ.get('DB_HOST', 'localhost')
@@ -16,9 +17,9 @@ DB_PORT = os.environ.get('DB_PORT', 5432)
 DB_NAME = os.environ.get('DB_NAME', 'water_data')
 DB_USER = os.environ.get('DB_USER', 'postgres')
 DB_PASS = os.environ.get('DB_PASS', 'password')
+WEATHER_API_KEY = os.environ.get('WEATHER_API_KEY', '')
 WEATHER_API_URL = "https://api.openweathermap.org/data/3.0/onecall/timemachine"
 
-# --- Flask App Setup ---
 # --- Flask App Setup ---
 app = Flask(__name__)
 
@@ -111,36 +112,42 @@ def receive_data():
         session_id = payload.get('session_id')
         water_leak = payload.get('water_leak', False)
 
-        if not all([lat, lon, samples, device_id, session_id]):
+        if not all([samples, device_id, session_id]):
             return jsonify({"error": "Missing critical data"}), 400
-
-        session_rain_flag = get_rain_flag(lat, lon, session_id)
 
         conn = get_db_connection()
         if not conn:
             return jsonify({"error": "Database connection failed"}), 500
 
-        insert_query = """
-            INSERT INTO sensor_data (
-                buoy_id, session_id, "timestamp", 
-                gps_lat, gps_lon, water_leak, 
-                pH, Temp, EC, Turbidity, "DO", ORP, 
-                rain_flag, battery_v
-            ) 
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
-        """
-        
-        inserted_rows = 0
         with conn.cursor() as cursor:
+            # 1. Insert or ignore session metadata into device_sessions
+            session_query = """
+                INSERT INTO device_sessions (device_id, session_id, water_leak, gps_lat, gps_lon)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (session_id) DO UPDATE 
+                SET water_leak = EXCLUDED.water_leak, gps_lat = EXCLUDED.gps_lat, gps_lon = EXCLUDED.gps_lon;
+            """
+            cursor.execute(session_query, (device_id, session_id, water_leak, lat, lon))
+
+            # 2. Insert individual samples into sensor_samples
+            sample_query = """
+                INSERT INTO sensor_samples (
+                    session_id, sample_time, ph, temp, air_temp, humidity, 
+                    ec, turbidity, do_val, orp, battery_v
+                ) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+            """
+            
+            inserted_rows = 0
             for sample in samples:
                 sample_time = sample.get('time')
                 if not sample_time:
                     continue
-                cursor.execute(insert_query, (
-                    device_id, session_id, sample_time, lat, lon, water_leak,
-                    sample.get('pH'), sample.get('temp'), sample.get('EC'),
+                cursor.execute(sample_query, (
+                    session_id, sample_time, sample.get('pH'), sample.get('temp'),
+                    sample.get('air_temp'), sample.get('humidity'), sample.get('EC'),
                     sample.get('turbidity'), sample.get('DO'), sample.get('ORP'),
-                    session_rain_flag, sample.get('battery_v')
+                    sample.get('battery_v')
                 ))
                 inserted_rows += 1
         
@@ -169,15 +176,16 @@ def get_dashboard_analysis():
         if not all([buoy_id, timeframe_start, timeframe_end]):
             return jsonify({"error": "Missing critical parameters"}), 400
 
-        # --- PRE-CHECK: Prevent 500 crash by checking for data first ---
+        # --- PRE-CHECK: Check for data in normalized tables ---
         conn = get_db_connection()
         if conn:
             with conn.cursor() as cursor:
                 cursor.execute("""
-                    SELECT COUNT(*) FROM sensor_data 
-                    WHERE buoy_id = %s 
-                    AND "timestamp" >= %s 
-                    AND "timestamp" <= %s
+                    SELECT COUNT(*) FROM sensor_samples s
+                    JOIN device_sessions d ON s.session_id = d.session_id
+                    WHERE d.device_id = %s 
+                    AND s.sample_time >= %s 
+                    AND s.sample_time <= %s
                 """, (buoy_id, timeframe_start, timeframe_end))
                 count = cursor.fetchone()[0]
             conn.close()
@@ -198,6 +206,8 @@ def get_dashboard_analysis():
             
         class CustomEncoder(json.JSONEncoder):
             def default(self, obj):
+                if isinstance(obj, Decimal):
+                    return float(obj)
                 if isinstance(obj, np.integer):
                     return int(obj)
                 if isinstance(obj, np.floating):
@@ -223,7 +233,8 @@ def get_latest_buoy_data():
     query = """
         SELECT DISTINCT ON (d.device_id)
             d.device_id AS buoy_id, b.friendly_name, b.water_body_type, s.sample_time AS "timestamp",
-            d.water_leak, d.gps_lat, d.gps_lon
+            d.water_leak, s.ph, s.temp, s.air_temp, s.humidity, s.ec, s.turbidity, s.do_val AS "DO", s.orp, s.battery_v,
+            d.gps_lat, d.gps_lon
         FROM sensor_samples s
         JOIN device_sessions d ON s.session_id = d.session_id
         JOIN buoys b ON d.device_id = b.buoy_id
@@ -242,6 +253,8 @@ def get_latest_buoy_data():
 
         class CustomEncoder(json.JSONEncoder):
             def default(self, obj):
+                if isinstance(obj, Decimal):
+                    return float(obj)
                 if isinstance(obj, np.integer):
                     return int(obj)
                 if isinstance(obj, np.floating):
