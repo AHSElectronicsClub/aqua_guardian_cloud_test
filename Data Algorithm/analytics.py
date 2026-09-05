@@ -96,7 +96,7 @@ def fetch_sensor_data(conn: psycopg2.extensions.connection, buoy_id: str,
         if start_time and end_time:
             query = """
                 SELECT s.sample_time AS "timestamp", s.ph, s.do_val AS "DO", s.ec, s.turbidity, s.temp, s.air_temp, s.humidity, s.orp, s.battery_v,
-                       d.water_leak, d.session_id,
+                       s.rain_flag, d.water_leak, d.session_id,
                        d.gps_lat, d.gps_lon
                 FROM sensor_samples s
                 JOIN device_sessions d ON s.session_id = d.session_id
@@ -107,7 +107,7 @@ def fetch_sensor_data(conn: psycopg2.extensions.connection, buoy_id: str,
         else:
             query = """
                 SELECT s.sample_time AS "timestamp", s.ph, s.do_val AS "DO", s.ec, s.turbidity, s.temp, s.air_temp, s.humidity, s.orp, s.battery_v,
-                       d.water_leak, d.session_id,
+                       s.rain_flag, d.water_leak, d.session_id,
                        d.gps_lat, d.gps_lon
                 FROM sensor_samples s
                 JOIN device_sessions d ON s.session_id = d.session_id
@@ -121,7 +121,6 @@ def fetch_sensor_data(conn: psycopg2.extensions.connection, buoy_id: str,
         if df.empty:
             return pd.DataFrame()
 
-        # Coerce invalid uptime counter strings like 'T88S' or 'T26S' to NaT and drop them
         df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
         df = df.dropna(subset=['timestamp'])
         if df.empty:
@@ -135,6 +134,7 @@ def fetch_sensor_data(conn: psycopg2.extensions.connection, buoy_id: str,
             'air_temp': 'air_temp',
             'humidity': 'humidity',
             'orp': 'ORP',
+            'rain_flag': 'rain_flag',
             'water_leak': 'water_leak',
             'session_id': 'session_id',
             'gps_lat': 'gps_lat',

@@ -111,6 +111,8 @@ def receive_data():
         if not all([samples, device_id, session_id]):
             return jsonify({"error": "Missing critical data"}), 400
 
+        session_rain_flag = get_rain_flag(lat, lon, session_id) if lat and lon else False
+
         conn = get_db_connection()
         if not conn:
             return jsonify({"error": "Database connection failed"}), 500
@@ -127,9 +129,9 @@ def receive_data():
             sample_query = """
                 INSERT INTO sensor_samples (
                     session_id, sample_time, ph, temp, air_temp, humidity, 
-                    ec, turbidity, do_val, orp, battery_v
+                    ec, turbidity, do_val, orp, battery_v, rain_flag
                 ) 
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
             """
             
             inserted_rows = 0
@@ -141,7 +143,7 @@ def receive_data():
                     session_id, sample_time, sample.get('pH'), sample.get('temp'),
                     sample.get('air_temp'), sample.get('humidity'), sample.get('EC'),
                     sample.get('turbidity'), sample.get('DO'), sample.get('ORP'),
-                    sample.get('battery_v')
+                    sample.get('battery_v'), session_rain_flag
                 ))
                 inserted_rows += 1
         
