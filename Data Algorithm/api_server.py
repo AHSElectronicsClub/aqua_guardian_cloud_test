@@ -169,6 +169,23 @@ def get_dashboard_analysis():
         if not all([buoy_id, timeframe_start, timeframe_end]):
             return jsonify({"error": "Missing critical parameters"}), 400
 
+        # --- PRE-CHECK: Prevent 500 crash by checking for data first ---
+        conn = get_db_connection()
+        if conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT COUNT(*) FROM sensor_data 
+                    WHERE buoy_id = %s 
+                    AND "timestamp" >= %s 
+                    AND "timestamp" <= %s
+                """, (buoy_id, timeframe_start, timeframe_end))
+                count = cursor.fetchone()[0]
+            conn.close()
+            
+            if count == 0:
+                return jsonify({"error": "No data available for this timeframe."}), 404
+        # ---------------------------------------------------------------
+
         analysis_result = analytics.get_dashboard_data(
             buoy_id=buoy_id,
             timeframe_start=timeframe_start,
@@ -177,7 +194,7 @@ def get_dashboard_analysis():
         )
         
         if 'error' in analysis_result:
-            return jsonify(analysis_result), 500
+            return jsonify(analysis_result), 404
             
         class CustomEncoder(json.JSONEncoder):
             def default(self, obj):
@@ -198,7 +215,7 @@ def get_dashboard_analysis():
     except Exception as e:
         import traceback
         error_msg = traceback.format_exc()
-        print(error_msg) # Force print to stdout
+        print(error_msg)
         return jsonify({"error": str(e), "traceback": error_msg}), 500
 
 @app.route("/api/buoys/latest", methods=["GET"])
