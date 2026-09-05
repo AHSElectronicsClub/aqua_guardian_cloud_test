@@ -107,36 +107,37 @@ def fetch_sensor_data(conn: psycopg2.extensions.connection, buoy_id: str,
                       start_time: Optional[str] = None, 
                       end_time: Optional[str] = None) -> pd.DataFrame:
     """
-    Fetches sensor data for a given buoy and optional timeframe using SQLAlchemy engine.
+    Fetches sensor data using a JOIN between sensor_samples and device_sessions.
     """
     try:
-        # Build SQLAlchemy engine using the environment variables
         db_user = os.environ.get('DB_USER', 'postgres')
-        db_pass = os.environ.get('DB_PASS', 'aW+T6e_h!EyW7BQ')
+        db_pass = os.environ.get('DB_PASS', 'password')
         db_host = os.environ.get('DB_HOST', 'localhost')
-        db_port = os.environ.get('DB_PORT', '6543')
-        db_name = os.environ.get('DB_NAME', 'postgres')
+        db_port = os.environ.get('DB_PORT', '5432')
+        db_name = os.environ.get('DB_NAME', 'water_data')
         
         engine = create_engine(f"postgresql+psycopg2://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}")
 
         if start_time and end_time:
             query = """
-                SELECT "timestamp", pH, "DO", EC, Turbidity, Temp, ORP, 
-                       rain_flag, water_leak, session_id,
-                       gps_lat, gps_lon
-                FROM sensor_data 
-                WHERE buoy_id = %s AND "timestamp" BETWEEN %s AND %s
-                ORDER BY "timestamp" ASC
+                SELECT s.sample_time AS "timestamp", s.ph, s.do_val AS "DO", s.ec, s.turbidity, s.temp, s.air_temp, s.humidity, s.orp, s.battery_v,
+                       d.water_leak, d.session_id,
+                       d.gps_lat, d.gps_lon
+                FROM sensor_samples s
+                JOIN device_sessions d ON s.session_id = d.session_id
+                WHERE d.device_id = %s AND s.sample_time BETWEEN %s AND %s
+                ORDER BY s.sample_time ASC
             """
             params = (buoy_id, start_time, end_time)
         else:
             query = """
-                SELECT "timestamp", pH, "DO", EC, Turbidity, Temp, ORP, 
-                       rain_flag, water_leak, session_id,
-                       gps_lat, gps_lon
-                FROM sensor_data 
-                WHERE buoy_id = %s 
-                ORDER BY "timestamp" ASC
+                SELECT s.sample_time AS "timestamp", s.ph, s.do_val AS "DO", s.ec, s.turbidity, s.temp, s.air_temp, s.humidity, s.orp, s.battery_v,
+                       d.water_leak, d.session_id,
+                       d.gps_lat, d.gps_lon
+                FROM sensor_samples s
+                JOIN device_sessions d ON s.session_id = d.session_id
+                WHERE d.device_id = %s 
+                ORDER BY s.sample_time ASC
             """
             params = (buoy_id,)
             
@@ -152,11 +153,14 @@ def fetch_sensor_data(conn: psycopg2.extensions.connection, buoy_id: str,
             'ec': 'EC',
             'turbidity': 'Turbidity',
             'temp': 'Temp',
+            'air_temp': 'air_temp',
+            'humidity': 'humidity',
             'orp': 'ORP',
             'water_leak': 'water_leak',
             'session_id': 'session_id',
             'gps_lat': 'gps_lat',
-            'gps_lon': 'gps_lon'
+            'gps_lon': 'gps_lon',
+            'battery_v': 'battery_v'
         }
         df.rename(columns=rename_map, inplace=True)
 

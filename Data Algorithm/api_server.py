@@ -221,12 +221,13 @@ def get_dashboard_analysis():
 @app.route("/api/buoys/latest", methods=["GET"])
 def get_latest_buoy_data():
     query = """
-        SELECT DISTINCT ON (s.buoy_id)
-            s.buoy_id, b.friendly_name, b.water_body_type, s."timestamp",
-            s.water_leak, s.samples, s.gps
-        FROM sensor_data s
-        JOIN buoys b ON s.buoy_id = b.buoy_id
-        ORDER BY s.buoy_id, s."timestamp" DESC;
+        SELECT DISTINCT ON (d.device_id)
+            d.device_id AS buoy_id, b.friendly_name, b.water_body_type, s.sample_time AS "timestamp",
+            d.water_leak, d.gps_lat, d.gps_lon
+        FROM sensor_samples s
+        JOIN device_sessions d ON s.session_id = d.session_id
+        JOIN buoys b ON d.device_id = b.buoy_id
+        ORDER BY d.device_id, s.sample_time DESC;
     """
     conn = None
     try:
