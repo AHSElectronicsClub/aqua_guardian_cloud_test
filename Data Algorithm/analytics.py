@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import psycopg2
-import psycopg2.extras # For getting dict results
+import psycopg2.extras
 import pandas as pd
 import numpy as np
 import os
@@ -11,40 +11,31 @@ from typing import Optional, Tuple, Dict, Any
 from sqlalchemy import create_engine
 import math
 
-# --- Universal Variables (Constants) ---
-
-# Database connection parameters (using environment variables is best practice)
 DB_HOST = os.environ.get('DB_HOST', 'localhost')
 DB_PORT = os.environ.get('DB_PORT', 5432)
 DB_NAME = os.environ.get('DB_NAME', 'water_data')
 DB_USER = os.environ.get('DB_USER', 'postgres')
-DB_PASS = os.environ.get('DB_PASS', 'password') # Change this in your environment
+DB_PASS = os.environ.get('DB_PASS', 'password')
 
-# Default pH ideals for lakes as per your criteria
 DEFAULT_LAKE_PH_IDEALS = (6.5, 8.5)
 
-# Rain lag times in minutes, based on the provided table
-# Lags for Temp and ORP are not specified, 
-# so we'll map Temp -> DO lag, and ORP -> EC lag as a reasonable proxy.
 RAIN_LAG_MINUTES = {
     'Lake': {
         'Turbidity': 50,
         'EC': 100,
         'DO': 150,
-        'Temp': 150, # Assumed, mapped to DO
-        'ORP': 100, # Assumed, mapped to EC
+        'Temp': 150, 
+        'ORP': 100, 
     },
     'Stream': {
         'Turbidity': 5,
         'EC': 15,
         'DO': 50,
-        'Temp': 50, # Assumed, mapped to DO
-        'ORP': 15,  # Assumed, mapped to EC
+        'Temp': 50, 
+        'ORP': 15,  
     }
 }
 
-# Decay constants (tau) in hours for weighted recovery after rain
-# These are estimations as "a few hours" was specified
 TAU_DECAY_HOURS = {
     'Lake': {
         'EC': 4.0,
@@ -60,15 +51,10 @@ TAU_DECAY_HOURS = {
     }
 }
 
-# Sensors to nullify vs. flag during/after rain
-SENSORS_TO_NULLIFY = ['EC', 'DO', 'Temp', 'ORP'] #
-SENSORS_TO_FLAG = ['Turbidity', 'pH'] #
-
-
-# --- Database Helper Functions ---
+SENSORS_TO_NULLIFY = ['EC', 'DO', 'Temp', 'ORP']
+SENSORS_TO_FLAG = ['Turbidity', 'pH']
 
 def get_db_connection() -> psycopg2.extensions.connection:
-    """Establishes a connection to the TimescaleDB/PostgreSQL database."""
     try:
         conn = psycopg2.connect(
             host=DB_HOST,
@@ -82,15 +68,8 @@ def get_db_connection() -> psycopg2.extensions.connection:
         return {"error": f"Unable to connect to database: {e}"}
 
 def get_buoy_info(conn: psycopg2.extensions.connection, buoy_id: str) -> Dict[str, Any]:
-    """
-    Fetches buoy metadata (water body type).
-    *** MODIFIED: GPS is now fetched from sensor_data table. ***
-    """
     try:
-        # Use DictCursor to get results as dictionaries
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-            # --- MODIFICATION ---
-            # Only select water_body_type. GPS will come from sensor_data.
             cursor.execute(
                 "SELECT water_body_type FROM buoys WHERE buoy_id = %s",
                 (buoy_id,)
@@ -101,14 +80,10 @@ def get_buoy_info(conn: psycopg2.extensions.connection, buoy_id: str) -> Dict[st
             return dict(buoy_data)
     except psycopg2.Error as e:
         raise
-        
 
 def fetch_sensor_data(conn: psycopg2.extensions.connection, buoy_id: str, 
                       start_time: Optional[str] = None, 
                       end_time: Optional[str] = None) -> pd.DataFrame:
-    """
-    Fetches sensor data using a JOIN between sensor_samples and device_sessions.
-    """
     try:
         db_user = os.environ.get('DB_USER', 'postgres')
         db_pass = os.environ.get('DB_PASS', 'password')
@@ -146,7 +121,11 @@ def fetch_sensor_data(conn: psycopg2.extensions.connection, buoy_id: str,
         if df.empty:
             return pd.DataFrame()
 
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        # Coerce invalid uptime counter strings like 'T88S' or 'T26S' to NaT and drop them
+        df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+        df = df.dropna(subset=['timestamp'])
+        if df.empty:
+            return pd.DataFrame()
         
         rename_map = {
             'ph': 'pH',
@@ -173,9 +152,6 @@ def fetch_sensor_data(conn: psycopg2.extensions.connection, buoy_id: str,
         raise
 
 def handle_rain_effects(df_raw: pd.DataFrame, water_body_type: str) -> pd.DataFrame:
-    """
-    Applies rain-related nullification, flagging, and decay weighting.
-    """
     if df_raw.empty:
         return pd.DataFrame(columns=df_raw.columns.tolist() + ['is_rain_affected_Turbidity'])
 
@@ -208,18 +184,11 @@ def handle_rain_effects(df_raw: pd.DataFrame, water_body_type: str) -> pd.DataFr
     turbidity_lag = lags.get('Turbidity', 0)
     df['is_rain_affected_Turbidity'] = (df['time_since_rain_min'] >= 0) & (df['time_since_rain_min'] <= turbidity_lag)
 
-    # Remove time_since_rain_min and last_rain_time from final output
     df = df.drop(columns=['time_since_rain_min', 'last_rain_time'])
     
     return df.reset_index()
 
-# ... (All other functions from calculate_baselines to calculate_pollution_indicator 
-# ... remain exactly the same as your original file) ...
 def calculate_baselines(df_processed_full: pd.DataFrame) -> Tuple[Dict, Dict]:
-    """
-    Calculates the long-term baselines and standard deviations using the 
-    entire processed dataset and decay weights.
-    """
     baselines = {}
     baseline_std_devs = {}
 
@@ -250,9 +219,6 @@ def calculate_baselines(df_processed_full: pd.DataFrame) -> Tuple[Dict, Dict]:
 
 def calculate_safety_light(current_data: pd.Series, ph_ideals: Tuple[float, float], 
                            baselines: Dict, baseline_std_devs: Dict) -> str:
-    """
-    Determines the overall safety light (Red, Yellow, Green) for the *current* data point.
-    """
     sensor_status = []
 
     if 'pH' in current_data and pd.notna(current_data['pH']):
@@ -296,11 +262,6 @@ def calculate_safety_light(current_data: pd.Series, ph_ideals: Tuple[float, floa
 
 def calculate_all_safety_lights(df: pd.DataFrame, ph_ideals: Tuple[float, float], 
                                 baselines: Dict, baseline_std_devs: Dict) -> pd.Series:
-    """
-    Determines the safety light (Red, Yellow, Green) for *every* data point in a DataFrame.
-    This is a vectorized version of calculate_safety_light.
-    Assumes 'df' has a DatetimeIndex.
-    """
     status_df = pd.DataFrame(index=df.index, dtype='object')
     
     if 'pH' in df.columns:
@@ -356,10 +317,6 @@ def calculate_all_safety_lights(df: pd.DataFrame, ph_ideals: Tuple[float, float]
 
 def calculate_zscores(df_raw: pd.DataFrame, baselines: Dict, 
                       baseline_std_devs: Dict) -> pd.DataFrame:
-    """
-    Calculates the Z-score for *all raw data points* in the timeframe
-    against the long-term clean baseline.
-    """
     df_zscores = df_raw[['timestamp']].copy()
     
     sensors_to_check = baselines.keys()
@@ -379,11 +336,6 @@ def calculate_zscores(df_raw: pd.DataFrame, baselines: Dict,
     return df_zscores
 
 def calculate_algae_risk(df_processed_full: pd.DataFrame) -> Dict:
-    """
-    [IMPLEMENTED] Calculates algae bloom risk based on trends in the *entire* dataset.
-    This logic looks for key indicators: warm water, high pH spikes (from 
-    photosynthesis), and unstable Dissolved Oxygen (high diurnal swings).
-    """
     if df_processed_full.empty:
         return {"risk_score": 0, "analysis": "No data."}
 
@@ -435,13 +387,6 @@ def calculate_algae_risk(df_processed_full: pd.DataFrame) -> Dict:
 
 def calculate_nutrient_indicator(df_processed_timeframe: pd.DataFrame, 
                                  baselines: Dict[str, float]) -> Dict:
-    """
-    [IMPLEMENTED] Calculates nutrient enrichment indicators in the timeframe.
-    This logic looks for deviations from the baseline that suggest nutrient/organic load:
-    1. High EC: More dissolved solids (e.g., runoff).
-    2. Low DO: Oxygen being consumed by bacteria decomposing organic matter.
-    3. High Turbidity: Runoff carrying sediment and organic matter.
-    """
     if df_processed_timeframe.empty:
         return {"enrichment_score": 0, "analysis": "No data."}
     
@@ -486,13 +431,6 @@ def calculate_nutrient_indicator(df_processed_timeframe: pd.DataFrame,
 def calculate_pollution_indicator(df_processed_timeframe: pd.DataFrame, 
                                   baselines: Dict[str, float], 
                                   baseline_std_devs: Dict[str, float]) -> Dict:
-    """
-    [IMPLEMENTED] Calculates chemical/industrial pollution indicators.
-    This logic looks for acute, extreme events in the timeframe:
-    1. Extreme ORP: Very low (< -100mV) or high (> 500mV) suggests sewage or chemical agents.
-    2. Extreme pH: Sudden drops (< 5.0) or spikes (> 10.0) indicate acid/alkali spill.
-    3. EC Spike: A massive, anomalous spike (e.g., >5 std dev) suggests a spill.
-    """
     if df_processed_timeframe.empty:
         return {"pollution_score": 0, "analysis": "No data."}
 
@@ -535,10 +473,7 @@ def calculate_pollution_indicator(df_processed_timeframe: pd.DataFrame,
 
     return {"pollution_score": min(score, 100), "analysis": analysis}
 
-# --- Functions for cleaning data return --- 
-
 def clean_nans(obj):
-    """Recursively replaces NaN and Inf values with None for valid JSON serialization."""
     if isinstance(obj, float):
         if math.isnan(obj) or math.isinf(obj):
             return None
@@ -549,22 +484,10 @@ def clean_nans(obj):
         return [clean_nans(v) for v in obj]
     return obj
 
-# --- Main API Entry Function ---
-
 def get_dashboard_data(buoy_id: str, timeframe_start: str, timeframe_end: str, 
                        ph_ideals_tuple: Optional[Tuple[float, float]] = None) -> Dict[str, Any]:
-    """
-    Main function called by the API to fetch and calculate all dashboard metrics.
-    [FOR THE "BUOY TAB"]
-    
-    *** MODIFIED: GPS now comes from sensor_data, not buoy_info. ***
-    *** MODIFIED: Removed redundant checks that caused 'Series' error. ***
-    *** MODIFIED: Fixed 'latest_water_leak' bug. ***
-    """
-    
     conn = None
     try:
-        # 1. Get Buoy Info (Water Type)
         conn = get_db_connection()
         if isinstance(conn, dict) and "error" in conn:
             return conn
@@ -572,7 +495,6 @@ def get_dashboard_data(buoy_id: str, timeframe_start: str, timeframe_end: str,
         buoy_info = get_buoy_info(conn, buoy_id)
         water_body_type = buoy_info['water_body_type']
         
-        # 2. Set pH Ideals
         if ph_ideals_tuple:
             ph_ideals = ph_ideals_tuple
         elif water_body_type == 'Lake':
@@ -580,8 +502,6 @@ def get_dashboard_data(buoy_id: str, timeframe_start: str, timeframe_end: str,
         else:
             ph_ideals = (6.0, 9.0) 
             
-        # 3. Fetch Data (Timeframe + Full)
-        #    This now includes gps_lat and gps_lon
         df_raw_timeframe = fetch_sensor_data(conn, buoy_id, timeframe_start, timeframe_end)
         df_full_raw = fetch_sensor_data(conn, buoy_id)
 
@@ -590,19 +510,15 @@ def get_dashboard_data(buoy_id: str, timeframe_start: str, timeframe_end: str,
         if df_full_raw.empty:
             return {"error": "No historical data found for this buoy."}
 
-        # Get latest GPS from the raw timeframe data
         latest_data_row = df_raw_timeframe.iloc[-1]
         latest_gps_lat = latest_data_row['gps_lat']
         latest_gps_lon = latest_data_row['gps_lon']
 
-        # 4. Process Data (Rain handling, nullification, weighting)
         df_processed_timeframe = handle_rain_effects(df_raw_timeframe, water_body_type)
         df_processed_full = handle_rain_effects(df_full_raw, water_body_type)
 
-        # 5. Calculate Baselines (from full dataset)
         baselines, baseline_std_devs = calculate_baselines(df_processed_full)
         
-        # 5a. Calculate safety light status for all processed timeframe data
         df_processed_timeframe_idx = df_processed_timeframe.set_index('timestamp')
         
         status_series = calculate_all_safety_lights(
@@ -613,34 +529,25 @@ def get_dashboard_data(buoy_id: str, timeframe_start: str, timeframe_end: str,
         )
         overall_safety = calculate_safety_light(df_processed_timeframe.iloc[-1], ph_ideals, baselines, baseline_std_devs)
         
-        # 5b. Create a separate DataFrame for all rain-related flags
         flag_columns = ['timestamp', 'is_rain_affected_Turbidity'] + \
                        [col for col in df_processed_timeframe.columns if col.endswith('_weight')]
 
         df_flags = df_processed_timeframe[flag_columns]
 
-        # 6. Calculate Dashboard Metrics
         df_raw_with_flags = pd.merge(df_raw_timeframe, df_flags, on='timestamp', how='left')
         
         raw_data_output = df_raw_with_flags.to_dict('records')
         
-        # --- FIX 1 (from previous step) ---
-        # 'time_since_rain_min' is already removed by handle_rain_effects.
         std_dev = df_processed_timeframe.std(numeric_only=True).to_dict()
         
-        # --- FIX 1 (from previous step) ---
         moving_avg = df_processed_timeframe.rolling(window=12, min_periods=1, on='timestamp') \
                                            .mean(numeric_only=True)
         moving_avg = moving_avg.to_dict('records')
 
-        # 6b. Calculate Z-scores for all raw data points
         zscores_df = calculate_zscores(df_raw_timeframe, baselines, baseline_std_devs)
         zscores_df_with_flags = pd.merge(zscores_df, df_flags, on='timestamp', how='left')
         raw_data_zscores = zscores_df_with_flags.to_dict('records')
 
-        # 6c. Get the latest water leak status from hardware (boolean)
-        # --- FIX 2 (The new fix) ---
-        # We check 'water_leak' in the DataFrame's columns, not the Series'
         latest_water_leak = bool(latest_data_row['water_leak']) if 'water_leak' in df_raw_timeframe.columns else False
 
         dashboard_metrics = {
@@ -650,15 +557,13 @@ def get_dashboard_data(buoy_id: str, timeframe_start: str, timeframe_end: str,
             "raw_data_zscores": raw_data_zscores 
         }
 
-        # 7. Calculate Derived Metrics
         derived_metrics = {
-            "water_quality_status": overall_safety,  # Moved from dashboard_metrics
+            "water_quality_status": overall_safety,  
             "algae_bloom_risk": calculate_algae_risk(df_processed_full),
             "nutrient_enrichment": calculate_nutrient_indicator(df_processed_timeframe, baselines),
             "chemical_pollution": calculate_pollution_indicator(df_processed_timeframe, baselines, baseline_std_devs)
         }
         
-        # 8. Construct Final Response
         response_data = {
             "buoy_id": buoy_id,
             "gps_coordinates": {
@@ -687,10 +592,7 @@ def get_dashboard_data(buoy_id: str, timeframe_start: str, timeframe_end: str,
         if conn and not isinstance(conn, dict):
             conn.close()
 
-
-# --- Simplified Test Block ---
 if __name__ == "__main__":
-    # Just run get_dashboard_data and print the result as JSON
     result = get_dashboard_data(
         buoy_id="B-101",
         timeframe_start="2025-01-01T00:00:00", 
