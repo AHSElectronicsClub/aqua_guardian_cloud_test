@@ -223,9 +223,7 @@ def get_latest_buoy_data():
     query = """
         SELECT DISTINCT ON (s.buoy_id)
             s.buoy_id, b.friendly_name, b.water_body_type, s."timestamp",
-            s.gps_lat, s.gps_lon, s.water_leak, s.pH, s.Temp, s.EC,
-            s.Turbidity, s."DO", s.ORP, s.rain_flag, s.battery_v,
-            s.samples, s.gps
+            s.water_leak, s.samples, s.gps
         FROM sensor_data s
         JOIN buoys b ON s.buoy_id = b.buoy_id
         ORDER BY s.buoy_id, s."timestamp" DESC;
